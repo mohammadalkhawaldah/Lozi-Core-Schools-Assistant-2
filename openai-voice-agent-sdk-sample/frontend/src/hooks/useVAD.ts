@@ -61,9 +61,6 @@ export function useVAD({
         onnxWASMBasePath: ONNX_BASE,
         positiveSpeechThreshold: 0.55,
         negativeSpeechThreshold: 0.4,
-        preSpeechPaddingFrames: 6,
-        redemptionFrames: 16,
-        minSpeechFrames: 10,
         onSpeechStart: async () => {
           setStatus("speaking");
           await onSpeechStart?.();
@@ -120,4 +117,3 @@ export function useVAD({
     destroy,
   };
 }
-
