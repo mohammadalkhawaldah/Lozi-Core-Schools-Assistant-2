@@ -2,7 +2,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { SimliClient as SimliClientType } from "simli-client";
+import type {
+  SimliClient as SimliClientType,
+  SimliClientConfig,
+} from "simli-client";
 
 type SimliStatus = "disabled" | "idle" | "connecting" | "ready" | "error";
 
@@ -165,21 +168,30 @@ export function useSimliAvatar({ autoStart = true } = {}) {
       ]);
 
       setFaceId(session.faceId);
-      client.Initialize({
+      const simliModel =
+        (session.model as "fasttalk" | "artalk" | "") ?? ("fasttalk" as const);
+
+      const simliConfig: SimliClientConfig = {
         apiKey: "",
         session_token: session.sessionToken,
         faceID: session.faceId,
         handleSilence: session.handleSilence,
         maxSessionLength: session.maxSessionLength,
         maxIdleTime: session.maxIdleTime,
-        model: session.model,
+        model: simliModel,
         videoRef: videoRef.current,
         audioRef: audioRef.current,
         enableConsoleLogs:
           process.env.NEXT_PUBLIC_SIMLI_DEBUG === "true" ||
           process.env.NODE_ENV !== "production",
         SimliURL: SIMLI_API_BASE,
-      });
+        maxRetryAttempts: 5,
+        retryDelay_ms: 2000,
+        videoReceivedTimeout: 15000,
+        enableSFU: true,
+      };
+
+      client.Initialize(simliConfig);
 
       client.on("failed", (reason) => {
         setError(reason);

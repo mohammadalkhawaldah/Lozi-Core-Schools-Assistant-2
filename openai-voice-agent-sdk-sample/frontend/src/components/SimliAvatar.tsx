@@ -4,8 +4,8 @@ import clsx from "clsx";
 import type { RefObject } from "react";
 
 interface SimliAvatarProps {
-  videoRef: RefObject<HTMLVideoElement>;
-  audioRef: RefObject<HTMLAudioElement>;
+  videoRef: RefObject<HTMLVideoElement | null>;
+  audioRef: RefObject<HTMLAudioElement | null>;
   status: "disabled" | "idle" | "connecting" | "ready" | "error";
   error?: string | null;
   faceId?: string | null;
