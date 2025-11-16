@@ -33,6 +33,18 @@ const SIMLI_SAMPLE_RATE = Number(
 const SIMLI_API_BASE =
   process.env.NEXT_PUBLIC_SIMLI_API_BASE ?? "https://api.simli.ai";
 
+const DEFAULT_SESSION_PATHS = ["/simli/session", "/api/simli/session"];
+
+const normalizePath = (path: string) => {
+  if (!path) return "";
+  return path.startsWith("/") ? path : `/${path}`;
+};
+
+const joinUrl = (base: string, path: string) => {
+  const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
+  return `${normalizedBase}${normalizePath(path)}`;
+};
+
 function getBackendBaseUrl() {
   if (process.env.NEXT_PUBLIC_SERVER_BASE_URL) {
     return process.env.NEXT_PUBLIC_SERVER_BASE_URL;
@@ -106,6 +118,13 @@ export function useSimliAvatar({ autoStart = true } = {}) {
   const [error, setError] = useState<string | null>(null);
   const [faceId, setFaceId] = useState<string | null>(null);
   const backendBaseUrl = useMemo(getBackendBaseUrl, []);
+  const sessionPaths = useMemo(() => {
+    const envPaths =
+      process.env.NEXT_PUBLIC_SIMLI_SESSION_PATHS?.split(",")
+        .map((path) => path.trim())
+        .filter(Boolean) ?? [];
+    return envPaths.length > 0 ? envPaths : DEFAULT_SESSION_PATHS;
+  }, []);
 
   const ensureClient = useCallback(async () => {
     if (clientRef.current) {
@@ -131,22 +150,41 @@ export function useSimliAvatar({ autoStart = true } = {}) {
   }, [teardownClient]);
 
   const fetchSession = useCallback(async (): Promise<SimliSessionResponse> => {
-    const response = await fetch(`${backendBaseUrl}/simli/session`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        include_ice_servers: true,
-        face_id: process.env.NEXT_PUBLIC_SIMLI_FACE_ID,
-      }),
+    const payload = JSON.stringify({
+      include_ice_servers: true,
+      face_id: process.env.NEXT_PUBLIC_SIMLI_FACE_ID,
     });
 
-    if (!response.ok) {
-      throw new Error(`Simli session request failed (${response.status})`);
+    let lastError: Error | null = null;
+
+    for (const path of sessionPaths) {
+      const url = joinUrl(backendBaseUrl, path);
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: payload,
+        });
+
+        if (response.ok) {
+          return response.json();
+        }
+
+        lastError = new Error(
+          `Simli session request failed (${response.status})`
+        );
+      } catch (err) {
+        lastError =
+          err instanceof Error
+            ? err
+            : new Error("Simli session request failed");
+      }
     }
-    return response.json();
-  }, [backendBaseUrl]);
+
+    throw lastError ?? new Error("Simli session endpoint unavailable");
+  }, [backendBaseUrl, sessionPaths]);
 
   const start = useCallback(async () => {
     if (!SIMLI_ENABLED) {
