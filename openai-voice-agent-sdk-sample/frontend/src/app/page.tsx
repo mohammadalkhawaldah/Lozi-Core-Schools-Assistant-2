@@ -7,8 +7,9 @@ import { Header } from "@/components/Header";
 import { SimliAvatar } from "@/components/SimliAvatar";
 import { useAudio } from "@/hooks/useAudio";
 import { useSimliAvatar } from "@/hooks/useSimliAvatar";
+import { useVAD } from "@/hooks/useVAD";
 import { useWebsocket } from "@/hooks/useWebsocket";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import "./styles.css";
 
@@ -69,6 +70,28 @@ export default function Home() {
     onNewAudio: handleIncomingAudio,
     onAudioDone: handleAudioComplete,
   });
+  const [handsFreeEnabled, setHandsFreeEnabled] = useState(false);
+  const {
+    status: vadStatus,
+    error: vadError,
+    enable: enableHandsFree,
+    disable: disableHandsFree,
+  } = useVAD({
+    onSpeechStart: async () => {
+      await stopPlaying();
+      flushSimliAudio();
+      await startRecording();
+    },
+    onSpeechEnd: async () => {
+      const recorded = await stopRecording();
+      if (recorded && recorded.length > 0 && websocketReady) {
+        sendAudioMessage(recorded);
+      }
+    },
+    onError: () => {
+      setHandsFreeEnabled(false);
+    },
+  });
 
   function handleSubmit() {
     setPrompt("");
@@ -78,6 +101,22 @@ export default function Home() {
   async function handleStopPlaying() {
     await stopPlaying();
   }
+
+  async function toggleHandsFree() {
+    if (handsFreeEnabled) {
+      await disableHandsFree();
+      setHandsFreeEnabled(false);
+      return;
+    }
+    const started = await enableHandsFree();
+    setHandsFreeEnabled(started);
+  }
+
+  useEffect(() => {
+    if (vadError) {
+      setHandsFreeEnabled(false);
+    }
+  }, [vadError]);
 
   return (
     <div className="w-full h-dvh flex flex-col items-center">
@@ -90,6 +129,36 @@ export default function Home() {
         stopPlaying={handleStopPlaying}
         resetConversation={resetHistory}
       />
+      <div className="w-full max-w-2xl px-5 mb-4">
+        <div className="border border-slate-200 rounded-xl p-4 bg-white shadow-sm flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <p className="text-sm font-semibold">Hands-free mode</p>
+              <p className="text-xs text-slate-500">
+                {handsFreeEnabled
+                  ? `Status: ${vadStatus}`
+                  : "Tap to start listening automatically"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={toggleHandsFree}
+              className={`text-xs font-medium rounded px-3 py-1.5 ${
+                handsFreeEnabled
+                  ? "bg-rose-50 text-rose-600 border border-rose-100"
+                  : "bg-slate-900 text-white"
+              }`}
+            >
+              {handsFreeEnabled ? "Disable" : "Enable"}
+            </button>
+          </div>
+          {vadError && (
+            <p className="text-xs text-rose-600">
+              {vadError}
+            </p>
+          )}
+        </div>
+      </div>
       {simliEnabled && (
         <SimliAvatar
           videoRef={simliVideoRef}
@@ -112,7 +181,7 @@ export default function Home() {
         audioChat={
           <AudioChat
             frequencies={frequencies}
-            isReady={websocketReady && audioIsReady}
+            isReady={websocketReady && audioIsReady && !handsFreeEnabled}
             startRecording={startRecording}
             stopRecording={stopRecording}
             sendAudioMessage={sendAudioMessage}
