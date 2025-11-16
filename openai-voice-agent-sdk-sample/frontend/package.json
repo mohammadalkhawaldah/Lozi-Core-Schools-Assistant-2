@@ -23,6 +23,7 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^15.6.1",
+    "simli-client": "^2.0.0",
     "tailwind-merge": "^3.0.2",
     "wavtools": "^0.1.5"
   },

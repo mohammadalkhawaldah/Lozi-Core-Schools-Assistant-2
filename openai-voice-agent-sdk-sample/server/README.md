@@ -16,6 +16,27 @@ Features:
 
 This app is meant to be used as a starting point to build a conversational assistant that you can customize to your needs.
 
+## Optional: Simli avatar integration
+
+The backend exposes `POST /simli/session`, which proxies Simli's session creation API so that browser clients can obtain short‑lived `session_token`s without exposing the Simli API key. To enable it:
+
+1. Add the following variables to the project `.env` (loaded in `server/server.py`):
+
+   ```bash
+   SIMLI_API_KEY=<your_simli_api_key>
+   SIMLI_FACE_ID=<preferred_face_id>
+   # Optional overrides with sane defaults:
+   SIMLI_MODEL=fasttalk
+   SIMLI_HANDLE_SILENCE=true
+   SIMLI_MAX_SESSION_LENGTH=3600
+   SIMLI_MAX_IDLE_TIME=600
+   SIMLI_API_BASE=https://api.simli.ai
+   ```
+
+2. In the frontend, set `NEXT_PUBLIC_ENABLE_SIMLI=true`. If the backend runs on a different origin, also set `NEXT_PUBLIC_SERVER_BASE_URL` (defaults to `http://localhost:8000` during development).
+
+The frontend hook `useSimliAvatar` (see `frontend/src/hooks/useSimliAvatar.ts`) uses this endpoint to fetch session tokens, mirrors PCM audio streaming through the existing websocket, and renders the avatar with `simli-client`.
+
 ## Requirements
 
 - OpenAI API key

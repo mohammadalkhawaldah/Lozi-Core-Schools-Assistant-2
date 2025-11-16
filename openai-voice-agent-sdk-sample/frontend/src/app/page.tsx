@@ -4,11 +4,16 @@ import AudioChat from "@/components/AudioChat";
 import { ChatHistory } from "@/components/ChatDialog";
 import { Composer } from "@/components/Composer";
 import { Header } from "@/components/Header";
+import { SimliAvatar } from "@/components/SimliAvatar";
 import { useAudio } from "@/hooks/useAudio";
+import { useSimliAvatar } from "@/hooks/useSimliAvatar";
 import { useWebsocket } from "@/hooks/useWebsocket";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import "./styles.css";
+
+const SIMLI_MUTE_NATIVE_AUDIO =
+  process.env.NEXT_PUBLIC_SIMLI_MUTE_NATIVE_AUDIO !== "false";
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
@@ -23,6 +28,36 @@ export default function Home() {
     playbackFrequencies,
   } = useAudio();
   const {
+    videoRef: simliVideoRef,
+    audioRef: simliAudioRef,
+    status: simliStatus,
+    error: simliError,
+    isEnabled: simliEnabled,
+    faceId: simliFaceId,
+    start: startSimli,
+    stop: stopSimli,
+    handleAudioChunk: mirrorAudioToSimli,
+    flushAudio: flushSimliAudio,
+  } = useSimliAvatar();
+  const handleIncomingAudio = useCallback(
+    (audio: Int16Array<ArrayBuffer>) => {
+      const muteNative =
+        SIMLI_MUTE_NATIVE_AUDIO && simliEnabled && simliStatus === "ready";
+
+      if (muteNative) {
+        const silent = new Int16Array(audio.length);
+        playAudio(silent);
+      } else {
+        playAudio(audio);
+      }
+      mirrorAudioToSimli(audio);
+    },
+    [mirrorAudioToSimli, playAudio, simliEnabled, simliStatus]
+  );
+  const handleAudioComplete = useCallback(() => {
+    flushSimliAudio();
+  }, [flushSimliAudio]);
+  const {
     isReady: websocketReady,
     sendAudioMessage,
     sendTextMessage,
@@ -31,7 +66,8 @@ export default function Home() {
     isLoading,
     agentName,
   } = useWebsocket({
-    onNewAudio: playAudio,
+    onNewAudio: handleIncomingAudio,
+    onAudioDone: handleAudioComplete,
   });
 
   function handleSubmit() {
@@ -54,6 +90,19 @@ export default function Home() {
         stopPlaying={handleStopPlaying}
         resetConversation={resetHistory}
       />
+      {simliEnabled && (
+        <SimliAvatar
+          videoRef={simliVideoRef}
+          audioRef={simliAudioRef}
+          status={simliStatus}
+          error={simliError}
+          faceId={simliFaceId ?? undefined}
+          onRetry={() => {
+            void startSimli();
+          }}
+          onStop={stopSimli}
+        />
+      )}
       <ChatHistory messages={messages} isLoading={isLoading} />
       <Composer
         prompt={prompt}

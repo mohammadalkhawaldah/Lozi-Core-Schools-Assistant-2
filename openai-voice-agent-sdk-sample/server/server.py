@@ -1,7 +1,10 @@
+import os
 import time
 from collections.abc import AsyncIterator
 from logging import getLogger
 from typing import Any, Dict
+
+import httpx
 
 # Import core agent and voice pipeline logic
 from agents import Runner, trace
@@ -26,9 +29,10 @@ from app.utils import (
     process_inputs,
 )
 # FastAPI and middleware imports
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
+from pydantic import BaseModel
 
 # Load environment variables from .env file
 from dotenv import load_dotenv
@@ -39,6 +43,38 @@ load_dotenv(dotenv_path="../.env", override=True)
 app = FastAPI()
 
 logger = getLogger(__name__)
+
+# Simli configuration
+SIMLI_API_KEY = os.getenv("SIMLI_API_KEY")
+SIMLI_FACE_ID = os.getenv("SIMLI_FACE_ID")
+SIMLI_API_BASE = os.getenv("SIMLI_API_BASE", "https://api.simli.ai")
+SIMLI_MODEL = os.getenv("SIMLI_MODEL", "fasttalk")
+SIMLI_HANDLE_SILENCE = os.getenv("SIMLI_HANDLE_SILENCE", "true").lower() != "false"
+SIMLI_MAX_SESSION_LENGTH = int(os.getenv("SIMLI_MAX_SESSION_LENGTH", "3600"))
+SIMLI_MAX_IDLE_TIME = int(os.getenv("SIMLI_MAX_IDLE_TIME", "600"))
+SIMLI_ENABLED = bool(SIMLI_API_KEY and SIMLI_FACE_ID)
+SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
+SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+
+
+class SimliSessionRequest(BaseModel):
+    face_id: str | None = None
+    handle_silence: bool | None = None
+    max_session_length: int | None = None
+    max_idle_time: int | None = None
+    preload_avatar: bool | None = None
+    include_ice_servers: bool = True
+    model: str | None = None
+
+
+class SimliSessionResponse(BaseModel):
+    sessionToken: str
+    faceId: str
+    handleSilence: bool
+    maxSessionLength: int
+    maxIdleTime: int
+    model: str
+    iceServers: Any | None = None
 
 # Enable CORS for all origins (for frontend-backend communication)
 app.add_middleware(
@@ -146,9 +182,95 @@ async def websocket_endpoint(websocket: WebSocket):
 
                 audio_buffer = []  # reset the audio buffer
 
+
+@app.post("/simli/session", response_model=SimliSessionResponse)
+async def create_simli_session(request: SimliSessionRequest) -> SimliSessionResponse:
+    if not SIMLI_ENABLED:
+        raise HTTPException(status_code=503, detail="Simli integration is not configured")
+
+    face_id = request.face_id or SIMLI_FACE_ID  # type: ignore[arg-type]
+    if not face_id:
+        raise HTTPException(status_code=400, detail="A face ID is required to start a Simli session")
+
+    payload: dict[str, Any] = {
+        "faceId": face_id,
+        "apiKey": SIMLI_API_KEY,
+        "isJPG": False,
+        "syncAudio": False,
+        "audioInputFormat": "pcm16",
+        "batchSize": 1,
+        "handleSilence": (
+            request.handle_silence
+            if request.handle_silence is not None
+            else SIMLI_HANDLE_SILENCE
+        ),
+        "maxSessionLength": (
+            request.max_session_length
+            if request.max_session_length is not None
+            else SIMLI_MAX_SESSION_LENGTH
+        ),
+        "maxIdleTime": (
+            request.max_idle_time
+            if request.max_idle_time is not None
+            else SIMLI_MAX_IDLE_TIME
+        ),
+        "preloadAvatar": request.preload_avatar or False,
+        "model": request.model or SIMLI_MODEL,
+    }
+
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            session_resp = await client.post(
+                f"{SIMLI_API_BASE}/startAudioToVideoSession",
+                json=payload,
+            )
+            session_resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "Failed to create Simli session: %s", exc.response.text, exc_info=True
+            )
+            raise HTTPException(
+                status_code=exc.response.status_code,
+                detail="Simli session creation failed",
+            ) from exc
+        except httpx.HTTPError as exc:
+            logger.error("Simli session request error: %s", exc, exc_info=True)
+            raise HTTPException(status_code=502, detail="Simli API unreachable") from exc
+
+        session_data = session_resp.json()
+        session_token = session_data.get("session_token")
+        if not session_token:
+            logger.error("Simli session response missing session_token: %s", session_data)
+            raise HTTPException(
+                status_code=502, detail="Simli API returned an invalid response"
+            )
+
+        ice_servers = None
+        if request.include_ice_servers:
+            try:
+                ice_resp = await client.post(
+                    f"{SIMLI_API_BASE}/getIceServers",
+                    json={"apiKey": SIMLI_API_KEY},
+                )
+                ice_resp.raise_for_status()
+                ice_servers = ice_resp.json()
+            except httpx.HTTPError as exc:
+                # Non-fatal: avatar can still attempt connection with default ICE servers.
+                logger.warning("Unable to retrieve Simli ICE servers: %s", exc)
+
+    return SimliSessionResponse(
+        sessionToken=session_token,
+        faceId=face_id,
+        handleSilence=payload["handleSilence"],
+        maxSessionLength=payload["maxSessionLength"],
+        maxIdleTime=payload["maxIdleTime"],
+        model=payload["model"],
+        iceServers=ice_servers,
+    )
+
 # Entry point for running the server locally
 if __name__ == "__main__":
     import uvicorn
 
     # Start FastAPI app with Uvicorn (hot reload enabled)
-    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("server:app", host=SERVER_HOST, port=SERVER_PORT, reload=True)
