@@ -169,6 +169,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
             # When audio is complete, process and send response
             elif is_audio_complete(message):
+                if not audio_buffer:
+                    continue
                 await connection.cancel_greeting()
                 start_time = time.perf_counter()
 
