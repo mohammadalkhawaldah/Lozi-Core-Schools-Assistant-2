@@ -37,6 +37,10 @@ The backend exposes `POST /simli/session`, which proxies Simli's session creatio
 
 The frontend hook `useSimliAvatar` (see `frontend/src/hooks/useSimliAvatar.ts`) uses this endpoint to fetch session tokens, mirrors PCM audio streaming through the existing websocket, and renders the avatar with `simli-client`.
 
+## Optional: Pick a TTS voice
+
+The OpenAI TTS stack supports several preset voices (e.g. `alloy`, `echo`, `sage`, `nova`). Set the `OPENAI_TTS_VOICE` environment variable in `.env` (or on Render) to any of the supported identifiers and the backend will pass it to `gpt-4o-mini-tts`. Leaving it unset falls back to the model's default voice.
+
 ## Requirements
 
 - OpenAI API key

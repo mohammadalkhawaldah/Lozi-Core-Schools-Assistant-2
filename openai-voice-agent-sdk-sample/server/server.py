@@ -55,6 +55,7 @@ SIMLI_MAX_IDLE_TIME = int(os.getenv("SIMLI_MAX_IDLE_TIME", "600"))
 SIMLI_ENABLED = bool(SIMLI_API_KEY and SIMLI_FACE_ID)
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+TTS_VOICE = os.getenv("OPENAI_TTS_VOICE")
 
 
 class SimliSessionRequest(BaseModel):
@@ -171,6 +172,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     config=VoicePipelineConfig(
                         model_provider=CustomVoiceModelProvider(),
                         tts_settings=TTSModelSettings(
+                            voice=TTS_VOICE,
                             instructions=get_arabic_tts_instructions(),
                             buffer_size=512, 
                             transform_data=transform_data
