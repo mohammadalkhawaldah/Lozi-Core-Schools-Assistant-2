@@ -138,6 +138,7 @@ async def websocket_endpoint(websocket: WebSocket):
         # Create a new WebsocketHelper for each connection
         connection = WebsocketHelper(websocket, [], starting_agent)
         audio_buffer = []
+        schedule_greeting(connection)
 
         workflow = Workflow(connection)
         while True:
@@ -154,8 +155,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     connection.latest_agent = starting_agent
                     await connection.cancel_greeting()
                     connection.greeting_sent = False
-                    schedule_greeting(connection)
-                elif not connection.greeting_sent and not connection.history:
                     schedule_greeting(connection)
             elif is_new_text_message(message):
                 await connection.cancel_greeting()
