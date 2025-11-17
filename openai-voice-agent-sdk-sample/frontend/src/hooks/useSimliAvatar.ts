@@ -268,6 +268,7 @@ export function useSimliAvatar({ autoStart = true } = {}) {
   const handleAudioChunk = useCallback((chunk: Int16Array) => {
     if (!SIMLI_ENABLED) return;
     if (!clientRef.current) return;
+    if (!clientRef.current.isConnected()) return;
     if (status !== "ready" && status !== "connecting") return;
 
     const processed = downsamplePCM(
@@ -285,7 +286,9 @@ export function useSimliAvatar({ autoStart = true } = {}) {
   }, [status]);
 
   const flushAudio = useCallback(() => {
-    clientRef.current?.ClearBuffer?.();
+    if (clientRef.current?.isConnected()) {
+      clientRef.current.ClearBuffer?.();
+    }
   }, []);
 
   return {
