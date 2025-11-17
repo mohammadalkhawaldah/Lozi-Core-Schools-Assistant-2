@@ -1,5 +1,3 @@
-import asyncio
-import json
 import os
 import time
 from collections.abc import AsyncIterator
@@ -7,7 +5,6 @@ from logging import getLogger
 from typing import Any, Dict
 
 import httpx
-import numpy as np
 
 # Import core agent and voice pipeline logic
 from agents import Runner, trace
@@ -17,8 +14,6 @@ from agents.voice import (
     VoicePipelineConfig,
     VoiceWorkflowBase,
 )
-from agents.voice.models.openai_model_provider import OpenAIVoiceModelProvider
-
 # Import configuration and utility functions
 from app.agent_config import starting_agent
 from app.arabic_tts_helper import get_arabic_tts_instructions
@@ -32,7 +27,6 @@ from app.utils import (
     is_sync_message,
     is_text_output,
     process_inputs,
-    transform_data_to_events,
 )
 # FastAPI and middleware imports
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -62,18 +56,6 @@ SIMLI_ENABLED = bool(SIMLI_API_KEY and SIMLI_FACE_ID)
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
 TTS_VOICE = os.getenv("OPENAI_TTS_VOICE")
-WELCOME_MESSAGE = (
-    "أهلا بكم في بمدارس لوزي كور. أنا المساعد الذكي، أستطيع أن أقدم لك معلومات عن "
-    "خدماتنا، وأن أجيب على أسئلتك التي تتعلق بأمور مثل التسجيل، المواصلات، "
-    "الأوراق المطلوبة، المناهج وغيرها."
-)
-
-
-class CustomVoiceModelProvider(OpenAIVoiceModelProvider):
-    def get_tts_model(self, model_name: str | None):
-        # Force use of gpt-4o-mini-tts model
-        return super().get_tts_model("gpt-4o-mini-tts")
-
 
 
 class SimliSessionRequest(BaseModel):
@@ -138,7 +120,6 @@ async def websocket_endpoint(websocket: WebSocket):
         # Create a new WebsocketHelper for each connection
         connection = WebsocketHelper(websocket, [], starting_agent)
         audio_buffer = []
-        schedule_greeting(connection)
 
         workflow = Workflow(connection)
         while True:
@@ -153,25 +134,17 @@ async def websocket_endpoint(websocket: WebSocket):
                 connection.history = message["inputs"]
                 if message.get("reset_agent", False):
                     connection.latest_agent = starting_agent
-                    await connection.cancel_greeting()
-                    connection.greeting_sent = False
-                    schedule_greeting(connection)
             elif is_new_text_message(message):
-                await connection.cancel_greeting()
                 user_input = process_inputs(message, connection)
                 async for new_output_tokens in workflow.run(user_input):
                     await connection.stream_response(new_output_tokens, is_text=True)
 
             # Handle incoming audio chunks
             elif is_new_audio_chunk(message):
-                await connection.cancel_greeting()
                 audio_buffer.append(extract_audio_chunk(message))
 
             # When audio is complete, process and send response
             elif is_audio_complete(message):
-                if not audio_buffer:
-                    continue
-                await connection.cancel_greeting()
                 start_time = time.perf_counter()
 
                 # Function to print time to first byte for debugging
@@ -188,6 +161,11 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 # Create a custom model provider that uses gpt-4o-mini-tts
                 from agents.voice.models.openai_model_provider import OpenAIVoiceModelProvider
+                
+                class CustomVoiceModelProvider(OpenAIVoiceModelProvider):
+                    def get_tts_model(self, model_name: str | None):
+                        # Force use of gpt-4o-mini-tts model
+                        return super().get_tts_model("gpt-4o-mini-tts")
                 
                 output = await VoicePipeline(
                     workflow=workflow,
@@ -298,50 +276,3 @@ if __name__ == "__main__":
 
     # Start FastAPI app with Uvicorn (hot reload enabled)
     uvicorn.run("server:app", host=SERVER_HOST, port=SERVER_PORT, reload=True)
-def schedule_greeting(connection: WebsocketHelper):
-    if connection.greeting_sent:
-        return
-    if connection.greeting_task and not connection.greeting_task.done():
-        return
-    task = asyncio.create_task(send_welcome_message(connection))
-    connection.set_greeting_task(task)
-
-
-async def stream_text_as_audio(connection: WebsocketHelper, text: str):
-    provider = CustomVoiceModelProvider()
-    tts_model = provider.get_tts_model("gpt-4o-mini-tts")
-    tts_settings = TTSModelSettings(
-        voice=TTS_VOICE,
-        instructions=get_arabic_tts_instructions(),
-        buffer_size=512,
-    )
-    cancelled = False
-    try:
-        async for chunk in tts_model.run(text, tts_settings):
-            if not chunk:
-                continue
-            audio_np = np.frombuffer(chunk, dtype=np.int16)
-            await connection.websocket.send_text(
-                json.dumps(transform_data_to_events(audio_np))
-            )
-    except asyncio.CancelledError:
-        cancelled = True
-        raise
-    except Exception as exc:
-        logger.error("Failed to stream greeting audio: %s", exc)
-    finally:
-        if not cancelled:
-            await connection.send_audio_done()
-
-
-async def send_welcome_message(connection: WebsocketHelper):
-    try:
-        if connection.greeting_sent:
-            return
-        connection.greeting_sent = True
-        await connection.append_assistant_message(WELCOME_MESSAGE)
-        await stream_text_as_audio(connection, WELCOME_MESSAGE)
-    except asyncio.CancelledError:
-        raise
-    finally:
-        connection.set_greeting_task(None)
