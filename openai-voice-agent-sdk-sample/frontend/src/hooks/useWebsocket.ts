@@ -3,6 +3,13 @@ import { useEffect, useRef, useState } from "react";
 import { Message } from "@/lib/types";
 import { arrayBufferToBase64, base64ToArrayBuffer } from "@/lib/utils";
 
+const HISTORY_WINDOW =
+  Number(process.env.NEXT_PUBLIC_HISTORY_WINDOW ?? "12") || 12;
+
+function limitHistory(messages: Message[]) {
+  return messages.slice(-HISTORY_WINDOW);
+}
+
 export function useWebsocket({
   url,
   onNewAudio,
@@ -90,7 +97,7 @@ export function useWebsocket({
       return true;
     });
     const newHistory = [
-      ...dedupedHistory.slice(-10), // Only last 10 messages
+      ...limitHistory(dedupedHistory),
       {
         role: "user",
         content: message,
@@ -130,7 +137,7 @@ export function useWebsocket({
       }
       return true;
     });
-    const limitedHistory = dedupedHistory.slice(-10); // Only last 10 messages
+    const limitedHistory = limitHistory(dedupedHistory);
     websocket.current.send(
       JSON.stringify({
         type: "history.update",
