@@ -25,6 +25,12 @@ const DEFAULT_ONNX_VERSION =
   process.env.NEXT_PUBLIC_VAD_ONNX_VERSION ?? "1.22.0";
 const VAD_ASSET_BASE = `https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@${DEFAULT_VAD_ASSET_VERSION}/dist/`;
 const ONNX_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${DEFAULT_ONNX_VERSION}/dist/`;
+const MIN_SPEECH_MS = Number(
+  process.env.NEXT_PUBLIC_VAD_MIN_SPEECH_MS ?? "400"
+);
+const REDEMPTION_MS = Number(
+  process.env.NEXT_PUBLIC_VAD_REDEMPTION_MS ?? "600"
+);
 
 export function useVAD({
   onSpeechStart,
@@ -59,11 +65,11 @@ export function useVAD({
         startOnLoad: false,
         baseAssetPath: VAD_ASSET_BASE,
         onnxWASMBasePath: ONNX_BASE,
-        positiveSpeechThreshold: 0.55,
-        negativeSpeechThreshold: 0.4,
-        preSpeechPaddingFrames: 4,
-        redemptionFrames: 6,
-        minSpeechFrames: 4,
+        positiveSpeechThreshold: 0.65,
+        negativeSpeechThreshold: 0.5,
+        preSpeechPaddingFrames: Math.max(2, Math.round((MIN_SPEECH_MS / 1000) * 16)),
+        redemptionFrames: Math.max(4, Math.round((REDEMPTION_MS / 1000) * 16)),
+        minSpeechFrames: Math.max(4, Math.round((MIN_SPEECH_MS / 1000) * 16)),
         onSpeechStart: async () => {
           setStatus("speaking");
           await onSpeechStart?.();
