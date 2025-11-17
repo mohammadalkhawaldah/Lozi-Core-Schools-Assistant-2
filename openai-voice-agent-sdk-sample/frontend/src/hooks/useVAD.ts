@@ -61,15 +61,18 @@ export function useVAD({
     }
     setStatus("initializing");
     try {
+      const frameTarget = Math.max(4, Math.round((MIN_SPEECH_MS / 1000) * 16));
+      const redemptionTarget = Math.max(
+        4,
+        Math.round((REDEMPTION_MS / 1000) * 16)
+      );
+
       const instance = await MicVADCtor.new({
         startOnLoad: false,
         baseAssetPath: VAD_ASSET_BASE,
         onnxWASMBasePath: ONNX_BASE,
         positiveSpeechThreshold: 0.65,
         negativeSpeechThreshold: 0.5,
-        preSpeechPaddingFrames: Math.max(2, Math.round((MIN_SPEECH_MS / 1000) * 16)),
-        redemptionFrames: Math.max(4, Math.round((REDEMPTION_MS / 1000) * 16)),
-        minSpeechFrames: Math.max(4, Math.round((MIN_SPEECH_MS / 1000) * 16)),
         onSpeechStart: async () => {
           setStatus("speaking");
           await onSpeechStart?.();
@@ -84,6 +87,12 @@ export function useVAD({
         onFrameProcessed: () => {},
         onSpeechRealStart: () => {},
       });
+      // Update the underlying frame processor thresholds (not typed in RealTimeVADOptions)
+      instance.setOptions({
+        preSpeechPaddingFrames: Math.max(2, frameTarget / 2),
+        redemptionFrames: redemptionTarget,
+        minSpeechFrames: frameTarget,
+      } as Partial<Record<string, number>>);
       vadRef.current = instance;
       return instance;
     } catch (err) {
